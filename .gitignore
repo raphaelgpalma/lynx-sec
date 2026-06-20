@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+runtime/plugin/node_modules/
+runtime/node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment & secrets — NEVER commit these
+.env
+.env.local
+*.pem
+*.key
+auth.json
+
+# opencode local state (must never leak into the image or repo)
+.opencode/auth.json
+opencode.db*
+
+# Logs & runtime artifacts
+logs/
+*.log
+runtime/workspace-skeleton/loot/
+runtime/workspace-skeleton/evidence/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
