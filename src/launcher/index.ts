@@ -121,7 +121,13 @@ function authWiring(cfg: PurininaConfig): {
       )
     }
   } else {
-    for (const key of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"]) {
+    for (const key of [
+      "OLLAMA_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "GOOGLE_GENERATIVE_AI_API_KEY",
+    ]) {
       const v = process.env[key]
       if (v) env[key] = v
     }

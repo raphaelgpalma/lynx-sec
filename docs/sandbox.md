@@ -78,7 +78,15 @@ is never written from inside.
 
 ## Authentication into the sandbox
 
+All of opencode's default providers stay available — Purinina restricts nothing.
+
 By default (`PURININA_AUTH_MODE=mount`) the launcher mounts your host opencode
-credentials read-only, so providers you've already logged into on the host work
-immediately. Alternatively set `PURININA_AUTH_MODE=env` and provide
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY` in the environment.
+credentials read-only, so every provider you've already logged into on the host
+works immediately — including **Ollama Cloud** (`ollama-cloud/*`), which opencode
+supports natively. Pick a model with `PURININA_MODEL`, e.g.
+`PURININA_MODEL=ollama-cloud/qwen3-coder:480b`; list options inside the sandbox
+with `opencode models | grep ollama-cloud`.
+
+Alternatively set `PURININA_AUTH_MODE=env` and provide one or more of
+`OLLAMA_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`
+/ `GOOGLE_GENERATIVE_AI_API_KEY` in the environment.
