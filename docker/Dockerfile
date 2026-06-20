@@ -55,7 +55,9 @@ RUN curl -fsSL https://opencode.ai/install | VERSION="${OPENCODE_VERSION}" bash 
 #   agent/         -> agent personas (orchestrator + specialists)
 RUN mkdir -p ${OPENCODE_CONFIG_DIR}/plugin ${OPENCODE_CONFIG_DIR}/agent
 COPY runtime/opencode.json ${OPENCODE_CONFIG_DIR}/opencode.json
-COPY runtime/plugin/ ${OPENCODE_CONFIG_DIR}/plugin/
+# Only the plugin source itself goes into the plugin dir — opencode treats every
+# file there as a plugin, so package.json/tsconfig must NOT be copied here.
+COPY runtime/plugin/purinina.ts ${OPENCODE_CONFIG_DIR}/plugin/purinina.ts
 COPY runtime/agent/ ${OPENCODE_CONFIG_DIR}/agent/
 
 # Pre-install plugin runtime dependencies so the first launch is fast and
