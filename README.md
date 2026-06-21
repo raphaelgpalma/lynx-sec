@@ -36,12 +36,12 @@ tool calling, bash integration and a permission system. Lynx does **not**
 reinvent any of that. Instead it treats opencode as the **runtime and interface**
 and layers the CAI-style multi-agent _architecture_ on top:
 
-| CAI (Python)                                               | Lynx (TypeScript on opencode)                                                |
+| CAI (Python)                                               | Lynx (TypeScript on opencode)                                                    |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `Agent` personas (red team, recon, …)                      | opencode **agents** (`runtime/agent/*.md`)                                       |
 | `handoff` / `transfer_to_X`                                | opencode **`task`** tool (orchestrator → subagent)                               |
-| Orchestration patterns (swarm / parallel / sequential)     | **orchestrator agent** + the **lynx plugin**                                 |
-| Per-category tools (recon, exploitation, web, …)           | custom **tools** in the lynx plugin                                          |
+| Orchestration patterns (swarm / parallel / sequential)     | **orchestrator agent** + the **lynx plugin**                                     |
+| Per-category tools (recon, exploitation, web, …)           | custom **tools** in the lynx plugin                                              |
 | Human-In-The-Loop                                          | central **HITL policy** in the plugin (`permission.ask` + `tool.execute.before`) |
 | Containerized virtualization (`--network host`, `NET_RAW`) | the **Docker sandbox** (`docker/`)                                               |
 
@@ -60,7 +60,7 @@ See [`docs/architecture.md`](./docs/architecture.md) for the full mapping.
             │   loads lynx global config (~/.config/opencode):
             │     • opencode.json   — providers, agents, permissions, plugin
             │     • plugin/         — HITL policy, sandbox guard, pentest tools
-            │     • agent/          — orchestrator + recon + web-exploit + reporter
+            │     • agent/          — orchestrator + 8 specialists (recon, web-exploit, exploit, creds, ad, ctf, retester, reporter)
             ▼
         you ⇄ orchestrator ⇄ specialist subagents ⇄ tools  (every dangerous step gated by HITL)
 ```
@@ -95,11 +95,15 @@ intrusive action pauses for your approval.
 Early development.
 
 - **v1 (vertical slice):** full pipeline end-to-end (sandbox → opencode → plugin
-  → agents → HITL → tools) with four agents: `orchestrator`, `recon`,
-  `web-exploit`, `reporter`, plus per-agent model selection.
+  → agents → HITL → tools), plus per-agent model selection.
+- **Agent roster:** `orchestrator` coordinating `recon`, `web-exploit`,
+  `exploit`, `creds`, `ad`, `ctf`, `retester`, and `reporter`.
 - **Phase 2 (essential patterns):** the orchestration **pattern engine** —
   `lynx_parallel`, `lynx_pipeline`, `lynx_swarm` — driving agents via
   the opencode SDK (orchestrator-only; HITL still applies).
+- **On-demand tooling:** the image ships a lean recon/web toolset; specialists
+  install heavier toolchains at runtime via `lynx_install` (vetted allowlist) or
+  HITL-gated `apt`.
 
 Remaining CAI specialist agents, the `conditional`/`hierarchical` patterns and a
 declarative `lynx.yml` are added incrementally
