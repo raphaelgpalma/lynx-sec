@@ -1,4 +1,19 @@
-# Lynx
+<p align="center">
+  <img src="./assets/banner.png" alt="Lynx — multi-agent offensive security, under control" width="720">
+</p>
+
+<h1 align="center">Lynx</h1>
+
+<p align="center">
+  <em>Multi-agent offensive security, under control.</em>
+</p>
+
+<p align="center">
+  <a href="#requirements"><img alt="Node ≥ 20" src="https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white"></a>
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white">
+  <img alt="runtime: opencode" src="https://img.shields.io/badge/runtime-opencode-000000">
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-red"></a>
+</p>
 
 > A multi-agent **cybersecurity / pentesting** framework that runs on top of
 > [opencode](https://opencode.ai) inside a hardened, host-networked Docker
