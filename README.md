@@ -17,7 +17,7 @@
 
 > A multi-agent **cybersecurity / pentesting** framework that runs on top of
 > [opencode](https://opencode.ai) inside a hardened, host-networked Docker
-> sandbox. Its multi-agent architecture is inspired 1:1 by
+> sandbox. Its multi-agent architecture is inspired by
 > [CAI (Cybersecurity AI)](https://github.com/aliasrobotics/cai) — re-implemented
 > from scratch in **TypeScript**, with a consistent **Human-In-The-Loop (HITL)**
 > policy.
