@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { DEFAULT_TARGET, getActiveTarget, targetDataDir, targetWorkspace } from "./targets.js"
 
 export type HitlMode = "strict" | "guided" | "auto"
 export type AuthMode = "mount" | "env"
@@ -19,8 +20,13 @@ export interface LynxConfig {
   container: string
   /** opencode version baked into the image at build time. */
   opencodeVersion: string
+  /** Active target name (undefined when a raw LYNX_WORKSPACE override is used). */
+  target: string | undefined
   /** Absolute path to the host engagement workspace (mounted into the sandbox). */
   workspace: string
+  /** Per-target opencode data dir (sessions/snapshots) mounted into the sandbox.
+   *  undefined for raw LYNX_WORKSPACE overrides → ephemeral sessions (legacy). */
+  dataDir: string | undefined
   /** HITL policy mode passed into the sandbox. */
   hitl: HitlMode
   /** How model-provider credentials reach the sandbox. */
@@ -62,15 +68,29 @@ function resolveRepoRoot(): string {
 export function loadConfig(cwd: string = process.cwd()): LynxConfig {
   loadDotEnv(cwd)
 
-  const workspaceRaw = process.env.LYNX_WORKSPACE ?? "./engagement"
-  const workspace = isAbsolute(workspaceRaw) ? workspaceRaw : resolve(cwd, workspaceRaw)
+  // Workspace + opencode data dir come from the active target. A raw
+  // LYNX_WORKSPACE override pins a workspace directly (advanced/legacy) and gets
+  // no persistent data dir → ephemeral sessions, the pre-targets behavior.
+  let target: string | undefined
+  let workspace: string
+  let dataDir: string | undefined
+  const wsOverride = process.env.LYNX_WORKSPACE
+  if (wsOverride) {
+    workspace = isAbsolute(wsOverride) ? wsOverride : resolve(cwd, wsOverride)
+  } else {
+    target = getActiveTarget() ?? DEFAULT_TARGET
+    workspace = targetWorkspace(target)
+    dataDir = targetDataDir(target)
+  }
 
   return {
     repoRoot: resolveRepoRoot(),
     image: process.env.LYNX_IMAGE ?? "lynx:latest",
     container: process.env.LYNX_CONTAINER ?? "lynx-sandbox",
     opencodeVersion: process.env.OPENCODE_VERSION ?? "1.17.8",
+    target,
     workspace,
+    dataDir,
     hitl: asHitl(process.env.LYNX_HITL),
     authMode: process.env.LYNX_AUTH_MODE === "env" ? "env" : "mount",
     hostAuthFile: resolve(homedir(), ".local/share/opencode/auth.json"),

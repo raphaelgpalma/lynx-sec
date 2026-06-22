@@ -40,6 +40,18 @@ export function containerState(name: string): "running" | "stopped" | "absent" {
   return r.stdout === "true" ? "running" : "stopped"
 }
 
+/** Host path currently bind-mounted at /root/engagement (empty if none/absent).
+ *  Used to detect a target switch so the sandbox can be recreated. */
+export function containerWorkspace(name: string): string {
+  const r = dockerCapture([
+    "inspect",
+    "-f",
+    '{{range .Mounts}}{{if eq .Destination "/root/engagement"}}{{.Source}}{{end}}{{end}}',
+    name,
+  ])
+  return r.ok ? r.stdout : ""
+}
+
 export function buildImage(opts: {
   image: string
   context: string
@@ -63,6 +75,9 @@ export interface RunOptions {
   container: string
   workspace: string
   hitl: string
+  /** Per-target opencode data dir → /root/.local/share/opencode (persistent
+   *  sessions/snapshots). Omitted for raw-workspace overrides (ephemeral). */
+  dataDir?: string
   /** [hostPath, containerPath, ro?] tuples for extra mounts (e.g. auth.json). */
   mounts: Array<[string, string, boolean?]>
   /** Extra `-e KEY=VALUE` environment entries. */
@@ -100,6 +115,12 @@ export function runContainer(opts: RunOptions): number {
     "-v",
     `${opts.workspace}:/root/engagement`,
   ]
+  // Per-target opencode data dir (persistent sessions). auth.json is layered on
+  // top of this via opts.mounts as a nested read-only mount, so the API key is
+  // never written into the target folder.
+  if (opts.dataDir) {
+    args.push("-v", `${opts.dataDir}:/root/.local/share/opencode`)
+  }
   for (const [host, dest, ro] of opts.mounts) {
     args.push("-v", `${host}:${dest}${ro ? ":ro" : ""}`)
   }

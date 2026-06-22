@@ -90,6 +90,33 @@ node dist/launcher/index.js
 On first launch the framework starts in **strict HITL** mode: every potentially
 intrusive action pauses for your approval.
 
+## Targets & sessions
+
+Each engagement is a **target** — a persistent, self-contained environment under
+`~/.lynx-sec/targets/<name>/`:
+
+- `engagement/` — your files (recon, loot, evidence, reports), mounted at
+  `/root/engagement`.
+- `.opencode/` — the opencode session/context (history, snapshots, DB), mounted
+  at `/root/.local/share/opencode`.
+
+Containers are disposable; **state lives on the host, per target**. Switching
+targets recreates a clean sandbox bound to that target; resuming a previous
+target restores both its files **and** its session/context.
+
+```bash
+lynx-sec target acme      # create + select target "acme"
+lynx-sec                  # launch it (clean, separate session)
+# …work the engagement…
+lynx-sec target hospital  # switch: clean session for "hospital"
+lynx-sec target acme      # come back to acme — files + context restored
+lynx-sec targets          # list all targets
+lynx-sec reset            # wipe the active target's session (keeps its files)
+```
+
+Provider auth (`auth.json`) is mounted read-only on top of `.opencode`, so the
+API key is **never** written into a target folder.
+
 ## Project status
 
 Early development.

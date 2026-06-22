@@ -6,18 +6,22 @@
  * for Lynx is ONLY ever launched through this container; it is never run
  * directly on the host.
  *
- *   lynx-sec            build (if needed) + start sandbox + open opencode
- *   lynx-sec build      (re)build the sandbox image
- *   lynx-sec shell      open a bash shell inside the sandbox
- *   lynx-sec status     show docker / image / container state
- *   lynx-sec stop       stop the sandbox container
- *   lynx-sec down       stop and remove the sandbox container
+ *   lynx-sec               build (if needed) + start sandbox + open opencode (active target)
+ *   lynx-sec target [name] show / create+select the active target (engagement)
+ *   lynx-sec targets       list saved targets
+ *   lynx-sec build         (re)build the sandbox image
+ *   lynx-sec shell         open a bash shell inside the sandbox
+ *   lynx-sec status        show docker / image / container / target state
+ *   lynx-sec reset [name]  wipe a target's session/context (keeps its files)
+ *   lynx-sec stop          stop the sandbox container
+ *   lynx-sec down          stop and remove the sandbox container
  *   lynx-sec --help
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { resolve } from "node:path"
 import { loadConfig, type LynxConfig } from "./config.js"
 import * as docker from "./docker.js"
+import * as targets from "./targets.js"
 import {
   discoverAgentNames,
   listAccessibleModels,
@@ -73,17 +77,28 @@ ${BOLD}Usage${RESET}
   lynx-sec [command]
 
 ${BOLD}Commands${RESET}
-  ${CYAN}(default)${RESET}   build if needed, start the sandbox, open opencode (orchestrator)
-  ${CYAN}build${RESET}       (re)build the sandbox image
-  ${CYAN}models${RESET}      assign a model to each agent (interactive); 'models list' prints all
-  ${CYAN}shell${RESET}       open a bash shell inside the running sandbox
-  ${CYAN}status${RESET}      show docker / image / container state
-  ${CYAN}stop${RESET}        stop the sandbox container
-  ${CYAN}down${RESET}        stop and remove the sandbox container
-  ${CYAN}help${RESET}        show this help
+  ${CYAN}(default)${RESET}      build if needed, start the sandbox, open opencode on the active target
+  ${CYAN}target${RESET} [name]  show, or create+select, the active target (engagement)
+  ${CYAN}targets${RESET}        list saved targets
+  ${CYAN}build${RESET}          (re)build the sandbox image
+  ${CYAN}models${RESET}         assign a model to each agent (interactive); 'models list' prints all
+  ${CYAN}shell${RESET}          open a bash shell inside the running sandbox
+  ${CYAN}status${RESET}         show docker / image / container / target state
+  ${CYAN}reset${RESET} [name]   wipe a target's opencode session/context (keeps engagement files)
+  ${CYAN}stop${RESET}           stop the sandbox container
+  ${CYAN}down${RESET}           stop and remove the sandbox container
+  ${CYAN}help${RESET}           show this help
+
+${BOLD}Targets${RESET} ${DIM}(each is a persistent, separate engagement)${RESET}
+  Files + opencode session live per target under ${DIM}~/.lynx-sec/targets/<name>/${RESET}.
+  Switching targets recreates a clean sandbox; resuming one restores files + context.
+    lynx-sec target acme   # create/select 'acme'
+    lynx-sec               # launch it
+    lynx-sec target old    # switch back to a previous target (restores its session)
 
 ${BOLD}Key settings${RESET} ${DIM}(env or .env)${RESET}
-  LYNX_WORKSPACE  host dir mounted as the engagement workspace (default ./engagement)
+  LYNX_HOME       lynx state dir: targets, active pointer, model selection (default ~/.lynx-sec)
+  LYNX_WORKSPACE  pin a raw workspace dir (advanced; bypasses targets, ephemeral sessions)
   LYNX_HITL       strict | guided | auto   (default strict)
   LYNX_MODEL      default model, e.g. ollama-cloud/qwen3-coder:480b
                       ${DIM}(per-agent models: 'lynx-sec models')${RESET}
@@ -97,9 +112,7 @@ ${DIM}Offensive-security tool — authorized testing only. See DISCLAIMER.${RESE
 function requireDocker(): void {
   if (!docker.isDockerInstalled()) {
     fail("Docker is required but was not found on PATH.")
-    log(
-      `${DIM}Install Docker, then re-run. Lynx runs entirely inside a Docker sandbox.${RESET}`,
-    )
+    log(`${DIM}Install Docker, then re-run. Lynx runs entirely inside a Docker sandbox.${RESET}`)
     process.exit(1)
   }
   if (!docker.isDockerRunning()) {
@@ -165,21 +178,30 @@ function authWiring(cfg: LynxConfig): {
 }
 
 function ensureContainer(cfg: LynxConfig): void {
+  const desired = resolve(cfg.workspace)
   const state = docker.containerState(cfg.container)
-  if (state === "running") {
-    ok(`Sandbox ${cfg.container} is running.`)
-    return
-  }
-  if (state === "stopped") {
-    info(`Starting existing sandbox ${cfg.container}…`)
-    if (docker.startContainer(cfg.container) !== 0) {
-      fail("Failed to start the existing container. Try 'lynx-sec down' then retry.")
-      process.exit(1)
+  if (state !== "absent") {
+    const bound = docker.containerWorkspace(cfg.container)
+    if (bound && resolve(bound) !== desired) {
+      // The existing sandbox belongs to a different target — recreate it so each
+      // target gets a clean container bound to its own files + opencode session.
+      info(`Switching target — recreating sandbox (was bound to ${bound}).`)
+      docker.removeContainer(cfg.container)
+    } else if (state === "running") {
+      ok(`Sandbox ${cfg.container} is running.`)
+      return
+    } else {
+      info(`Starting existing sandbox ${cfg.container}…`)
+      if (docker.startContainer(cfg.container) !== 0) {
+        fail("Failed to start the existing container. Try 'lynx-sec down' then retry.")
+        process.exit(1)
+      }
+      return
     }
-    return
   }
-  // absent -> create
+  // absent or just-removed -> create
   mkdirSync(cfg.workspace, { recursive: true })
+  if (cfg.dataDir) mkdirSync(cfg.dataDir, { recursive: true })
   info(`Creating sandbox ${cfg.container} (host network, NET_ADMIN/NET_RAW)…`)
   const { mounts, env } = authWiring(cfg)
   if (
@@ -187,6 +209,7 @@ function ensureContainer(cfg: LynxConfig): void {
       image: cfg.image,
       container: cfg.container,
       workspace: cfg.workspace,
+      dataDir: cfg.dataDir,
       hitl: cfg.hitl,
       mounts,
       env,
@@ -206,7 +229,7 @@ function ensureContainer(cfg: LynxConfig): void {
 function applyModels(cfg: LynxConfig): { default: string; agents: Record<string, string> } {
   mkdirSync(cfg.workspace, { recursive: true })
   const agents = discoverAgentNames(cfg.repoRoot)
-  const sel = loadSelection(process.cwd(), cfg.model ?? FALLBACK_MODEL)
+  const sel = loadSelection(targets.lynxHome(), cfg.model ?? FALLBACK_MODEL)
   const agentModels = resolveModels(agents, sel)
   writeWorkspaceModelConfig(cfg.workspace, sel.default, agentModels)
   return { default: sel.default, agents: agentModels }
@@ -235,6 +258,10 @@ function openOpencode(
 
 function cmdLaunch(cfg: LynxConfig): void {
   printBanner(cfg)
+  if (cfg.target) {
+    targets.ensureTarget(cfg.target)
+    info(`Target: ${BOLD}${cfg.target}${RESET} ${DIM}(${targets.targetDir(cfg.target)})${RESET}`)
+  }
   requireDocker()
   ensureImage(cfg)
   const models = applyModels(cfg)
@@ -269,12 +296,14 @@ function cmdStatus(cfg: LynxConfig): void {
     `  image (${cfg.image}) : ${docker.imageExists(cfg.image) ? GREEN + "built" : YELLOW + "missing"}${RESET}`,
   )
   log(`  container        : ${cfg.container} -> ${docker.containerState(cfg.container)}`)
+  log(`  target           : ${cfg.target ?? `${DIM}(LYNX_WORKSPACE override)${RESET}`}`)
   log(`  workspace        : ${cfg.workspace}`)
+  if (cfg.dataDir) log(`  session data     : ${cfg.dataDir}`)
   log(`  HITL mode        : ${cfg.hitl}`)
   log(`  auth mode        : ${cfg.authMode}`)
 
   const agents = discoverAgentNames(cfg.repoRoot)
-  const sel = loadSelection(process.cwd(), cfg.model ?? FALLBACK_MODEL)
+  const sel = loadSelection(targets.lynxHome(), cfg.model ?? FALLBACK_MODEL)
   const models = resolveModels(agents, sel)
   log(`  models           : ${DIM}(default ${sel.default}; edit with 'lynx-sec models')${RESET}`)
   for (const a of agents) {
@@ -299,12 +328,78 @@ function cmdModels(cfg: LynxConfig): void {
     for (const m of models) log(m)
     return
   }
-  void runInteractiveSelector(process.cwd(), agents, cfg.model ?? FALLBACK_MODEL).then((sel) => {
-    ok(`Saved model selection to ${selectionPath(process.cwd())}`)
-    log(`${DIM}Applied on next launch (written into <workspace>/opencode.json).${RESET}`)
-    const resolved = resolveModels(agents, sel)
-    for (const a of agents) log(`  ${a.padEnd(14)} ${resolved[a]}`)
-  })
+  mkdirSync(targets.lynxHome(), { recursive: true })
+  void runInteractiveSelector(targets.lynxHome(), agents, cfg.model ?? FALLBACK_MODEL).then(
+    (sel) => {
+      ok(`Saved model selection to ${selectionPath(targets.lynxHome())}`)
+      log(`${DIM}Applied on next launch (written into <workspace>/opencode.json).${RESET}`)
+      const resolved = resolveModels(agents, sel)
+      for (const a of agents) log(`  ${a.padEnd(14)} ${resolved[a]}`)
+    },
+  )
+}
+
+/** Show, or create+select, the active target (engagement). */
+function cmdTarget(): void {
+  const name = process.argv[3]
+  if (!name) {
+    const active = targets.getActiveTarget() ?? targets.DEFAULT_TARGET
+    log(`${BOLD}active target${RESET}: ${active}`)
+    log(`  dir       : ${targets.targetDir(active)}`)
+    log(`  workspace : ${targets.targetWorkspace(active)}`)
+    log(`${DIM}select/create: lynx-sec target <name>  ·  list: lynx-sec targets${RESET}`)
+    return
+  }
+  if (!targets.isValidTargetName(name)) {
+    fail(`Invalid target name '${name}'. Use letters, digits, . _ - (max 64 chars).`)
+    process.exit(1)
+  }
+  const fresh = !targets.targetExists(name)
+  targets.ensureTarget(name)
+  targets.setActiveTarget(name)
+  ok(`${fresh ? "Created and selected" : "Selected"} target '${name}'.`)
+  log(`  ${targets.targetDir(name)}`)
+  log(`${DIM}run 'lynx-sec' to launch it.${RESET}`)
+}
+
+/** List saved targets, marking the active one. */
+function cmdTargets(): void {
+  const active = targets.getActiveTarget() ?? targets.DEFAULT_TARGET
+  const all = targets.listTargets()
+  if (all.length === 0) {
+    warn("No targets yet. Create one with: lynx-sec target <name>")
+    return
+  }
+  log(`${BOLD}targets${RESET} ${DIM}(${targets.targetsRoot()})${RESET}`)
+  for (const t of all) {
+    const mark = t === active ? `${GREEN}●${RESET}` : " "
+    const tag = t === active ? `${DIM} (active)${RESET}` : ""
+    log(`  ${mark} ${t}${tag}`)
+  }
+}
+
+/** Wipe a target's opencode session/context, keeping its engagement files. */
+function cmdReset(cfg: LynxConfig): void {
+  const name = process.argv[3] ?? targets.getActiveTarget() ?? targets.DEFAULT_TARGET
+  if (!targets.targetExists(name)) {
+    warn(`Target '${name}' does not exist — nothing to reset.`)
+    return
+  }
+  // If the sandbox is currently bound to this target, remove it so the wiped
+  // session is recreated clean on next launch.
+  if (
+    docker.isDockerInstalled() &&
+    docker.containerState(cfg.container) !== "absent" &&
+    resolve(docker.containerWorkspace(cfg.container) || "/") ===
+      resolve(targets.targetWorkspace(name))
+  ) {
+    docker.removeContainer(cfg.container)
+    info("Removed the sandbox bound to this target.")
+  }
+  rmSync(targets.targetDataDir(name), { recursive: true, force: true })
+  mkdirSync(targets.targetDataDir(name), { recursive: true })
+  ok(`Reset session/context for target '${name}'. Engagement files kept.`)
+  log(`${DIM}Files: ${targets.targetWorkspace(name)}${RESET}`)
 }
 
 function cmdStop(cfg: LynxConfig): void {
@@ -337,6 +432,17 @@ function main(): void {
     case "launch":
     case "up":
       cmdLaunch(cfg)
+      break
+    case "target":
+    case "use":
+      cmdTarget()
+      break
+    case "targets":
+    case "ls":
+      cmdTargets()
+      break
+    case "reset":
+      cmdReset(cfg)
       break
     case "build":
       cmdBuild(cfg)
